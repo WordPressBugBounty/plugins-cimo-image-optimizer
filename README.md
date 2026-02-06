@@ -1,0 +1,1 @@
+# plugins-cimo-image-optimizer
