@@ -19,6 +19,7 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 				// Our admin page.
 				add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
 				add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_admin_scripts' ] );
+				add_filter( 'plugin_action_links_' . plugin_basename( CIMO_FILE ), [ $this, 'add_admin_action_links' ] );
 			}
 
 			// Disable thumbnail generation
@@ -32,13 +33,35 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 		 * Add admin menu under Settings
 		 */
 		public function add_admin_menu() {
+			$settings = get_option( 'cimo_options', [] );
+
 			add_options_page(
 				__( 'Cimo Settings', 'cimo-image-optimizer' ),
 				__( 'Cimo', 'cimo-image-optimizer' ),
 				'manage_options',
-				'cimo-settings',
+				CIMO_SETTINGS_SLUG,
 				[ $this, 'admin_page_callback' ]
 			);
+
+			// Remove the menu page if stealth mode is enabled.
+			// The menu page is still accessible via the plugin actions links.
+			if ( CIMO_BUILD === 'premium' &&  
+				isset( $settings['stealth_mode_enabled'] ) && 
+				$settings['stealth_mode_enabled'] === 1 ) {
+				remove_submenu_page(
+					'options-general.php',
+					CIMO_SETTINGS_SLUG,
+				);
+			}
+		}
+
+		/**
+		 * Add a Settings link to the plugin action links.
+		 */
+		public function add_admin_action_links( $links ) {
+			$settings_link = '<a href="' . esc_url( admin_url( 'options-general.php?page=' . CIMO_SETTINGS_SLUG ) ) . '">' . esc_html__( 'Settings', 'cimo-image-optimizer' ) . '</a>';
+			array_unshift( $links, $settings_link );
+			return $links;
 		}
 
 		/**
@@ -56,12 +79,10 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 						'schema' => [
 							'type' => 'object',
 							'properties' => [
-								'webp_quality' => [
+								// General settings
+								'optimize_all_media' => [
 									'type' => 'integer',
-								],
-								'max_image_dimension' => [
-									'type' => 'integer',
-								],
+								], 
 								'disable_wp_scaling' => [
 									'type' => 'integer',
 								],
@@ -73,6 +94,14 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 									'items' => [
 										'type' => 'string',
 									],
+								],
+
+								// Image Optimization settings
+								'webp_quality' => [
+									'type' => 'integer',
+								],
+								'max_image_dimension' => [
+									'type' => 'integer',
 								],
 
 								// LQIP settings
@@ -116,6 +145,11 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 									'type' => 'integer',
 								],
 								'svg_optimization_enabled' => [
+									'type' => 'integer',
+								],
+								
+								// Stealth Mode
+								'stealth_mode_enabled' => [
 									'type' => 'integer',
 								],
 							],
@@ -199,6 +233,8 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 				'stats' => $stats,
 				'imageSizes' => $formatted_sizes,
 				'ratingDismissed' => '1' === get_option( 'cimo_rating_dismissed', '0' ) ? '1' : '0',
+				'isPremium' => CIMO_BUILD === 'premium',
+				'uploadsUrl' => wp_upload_dir()['baseurl'],
 			] );
 		}
 
@@ -226,18 +262,9 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 			$current = get_option( 'cimo_options', [] );
 			$sanitized = is_array( $current ) ? $current : [];
 
-			// Sanitize webp quality
-			if ( isset( $options['webp_quality'] ) ) {
-				$quality = absint( $options['webp_quality'] );
-				// 0 means disabled/not set
-				$sanitized['webp_quality'] = $quality > 0 ? max( 1, min( 100, $quality ) ) : 0;
-			}
-
-			// Sanitize max image dimension
-			if ( isset( $options['max_image_dimension'] ) ) {
-				$dimension = absint( $options['max_image_dimension'] );
-				// 0 means disabled/not set
-				$sanitized['max_image_dimension'] = $dimension;
+			// Sanitize optimize_all_media
+			if ( isset( $options['optimize_all_media'] ) ) {
+				$sanitized['optimize_all_media'] = $options['optimize_all_media'] ? 1 : 0;
 			}
 
 			// Sanitize disable_wp_scaling
@@ -253,6 +280,20 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 			// Sanitize thumbnail sizes
 			if ( isset( $options['thumbnail_sizes'] ) && is_array( $options['thumbnail_sizes'] ) ) {
 				$sanitized['thumbnail_sizes'] = array_map( 'sanitize_text_field', $options['thumbnail_sizes'] );
+			}
+
+			// Sanitize webp quality
+			if ( isset( $options['webp_quality'] ) ) {
+				$quality = absint( $options['webp_quality'] );
+				// 0 means disabled/not set
+				$sanitized['webp_quality'] = $quality > 0 ? max( 1, min( 100, $quality ) ) : 0;
+			}
+
+			// Sanitize max image dimension
+			if ( isset( $options['max_image_dimension'] ) ) {
+				$dimension = absint( $options['max_image_dimension'] );
+				// 0 means disabled/not set
+				$sanitized['max_image_dimension'] = $dimension;
 			}
 
 			// Sanitize lqip_enabled
@@ -295,6 +336,11 @@ if ( ! class_exists( 'Cimo_Admin' ) ) {
 			// Sanitize svg_optimization_enabled
 			if ( isset( $options['svg_optimization_enabled'] ) ) {
 				$sanitized['svg_optimization_enabled'] = $options['svg_optimization_enabled'] ? 1 : 0;
+			}
+
+			// Sanitize stealth mode
+			if ( isset( $options['stealth_mode_enabled'] ) ) {
+				$sanitized['stealth_mode_enabled'] = $options['stealth_mode_enabled'] ? 1 : 0;
 			}
 
 			return $sanitized;
